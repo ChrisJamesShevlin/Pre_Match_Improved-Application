@@ -59,6 +59,16 @@ def calculate_fair_odds():
         edge_away = (away_win_prob - (1 / bookmaker_odds_away)) / (1 / bookmaker_odds_away)
         edge_draw = (draw_prob - (1 / bookmaker_odds_draw)) / (1 / bookmaker_odds_draw)
         
+        # Fair odds for over goals markets
+        def calculate_over_goals_odds(threshold):
+            prob = sum(home_goal_probs[i] * away_goal_probs[j] for i in range(goal_range) for j in range(goal_range) if i + j > threshold)
+            return 1 / prob
+
+        fair_over_0_5_odds = calculate_over_goals_odds(0.5)
+        fair_over_1_5_odds = calculate_over_goals_odds(1.5)
+        fair_over_2_5_odds = calculate_over_goals_odds(2.5)
+        fair_over_3_5_odds = calculate_over_goals_odds(3.5)
+        
         # Best lay bet selection
         layable_edges = {"Home": edge_home, "Away": edge_away, "Draw": edge_draw}
         best_lay = min(layable_edges, key=layable_edges.get)
@@ -91,8 +101,9 @@ def calculate_fair_odds():
         result_label["text"] = (f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}\n"
                                 f"Edges:\nHome: {edge_home:.4f} | Away: {edge_away:.4f} | Draw: {edge_draw:.4f}\n"
                                 f"Best Lay Bet: {best_lay} with Edge: {best_edge:.4f}\n"
-                                f"Recommended Stake: £{stake:.2f} on {best_lay}\n"
-                                f"Highest Goal Probabilities:\nHome: {home_max_goals} goals ({home_max_prob:.2%}) | Away: {away_max_goals} goals ({away_max_prob:.2%})")
+                                f"Recommended Stake: ${stake:.2f} on {best_lay}\n"
+                                f"Highest Goal Probabilities:\nHome: {home_max_goals} goals ({home_max_prob:.2%}) | Away: {away_max_goals} goals ({away_max_prob:.2%})\n"
+                                f"Fair Odds for Over Goals Markets:\nOver 0.5: {fair_over_0_5_odds:.2f} | Over 1.5: {fair_over_1_5_odds:.2f} | Over 2.5: {fair_over_2_5_odds:.2f} | Over 3.5: {fair_over_3_5_odds:.2f}")
     except ValueError:
         result_label["text"] = "Invalid input, please enter numerical values."
 
@@ -116,10 +127,10 @@ for i, label_text in enumerate(labels_text):
 
 # Buttons
 result_label = tk.Label(root, text="", justify="left")
-result_label.grid(row=len(labels_text), column=0, columnspan=2, padx=5, pady=5)
+result_label.grid(row=len(labels_text) + 1, column=0, columnspan=2, padx=5, pady=5)
 
-tk.Button(root, text="Calculate Fair Odds", command=calculate_fair_odds).grid(row=len(labels_text) + 1, column=0, columnspan=2, padx=5, pady=10)
+tk.Button(root, text="Calculate Fair Odds", command=calculate_fair_odds).grid(row=len(labels_text) + 2, column=0, columnspan=2, padx=5, pady=10)
 
-tk.Button(root, text="Reset Fields", command=lambda: [entry.delete(0, tk.END) for entry in entries.values()]).grid(row=len(labels_text) + 2, column=0, columnspan=2, padx=5, pady=10)
+tk.Button(root, text="Reset Fields", command=lambda: [entry.delete(0, tk.END) for entry in entries.values()]).grid(row=len(labels_text) + 3, column=0, columnspan=2, padx=5, pady=10)
 
 root.mainloop()
