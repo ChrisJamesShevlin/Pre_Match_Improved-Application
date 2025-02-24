@@ -28,6 +28,7 @@ def calculate_fair_odds():
         bookmaker_odds_home = float(entries["bookmaker_odds_home"].get())
         bookmaker_odds_away = float(entries["bookmaker_odds_away"].get())
         bookmaker_odds_draw = float(entries["bookmaker_odds_draw"].get())
+        account_balance = float(entries["account_balance"].get())
 
         # Expected Goals Calculation with xG Factor
         lambda_home = (((avg_goals_home_scored + avg_goals_away_conceded) / 2) + avg_xg_home) * (1 - 0.05 * injuries_home) + form_home * 0.1 - position_home * 0.02
@@ -63,10 +64,35 @@ def calculate_fair_odds():
         best_lay = min(layable_edges, key=layable_edges.get)
         best_edge = layable_edges[best_lay]
         
+        # Kelly criterion stake calculation
+        if best_lay == "Home":
+            bookmaker_odds = bookmaker_odds_home
+        elif best_lay == "Away":
+            bookmaker_odds = bookmaker_odds_away
+        else:
+            bookmaker_odds = bookmaker_odds_draw
+
+        if bookmaker_odds < 2.0:
+            kelly_fraction = 0.18
+        elif bookmaker_odds < 8.0:
+            kelly_fraction = 0.08
+        else:
+            kelly_fraction = 0.04
+
+        stake = account_balance * kelly_fraction * best_edge
+
+        # Highest goal probabilities
+        home_max_prob = max(home_goal_probs)
+        away_max_prob = max(away_goal_probs)
+        home_max_goals = home_goal_probs.index(home_max_prob)
+        away_max_goals = away_goal_probs.index(away_max_prob)
+        
         # Display results
         result_label["text"] = (f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}\n"
                                 f"Edges:\nHome: {edge_home:.4f} | Away: {edge_away:.4f} | Draw: {edge_draw:.4f}\n"
-                                f"Best Lay Bet: {best_lay} with Edge: {best_edge:.4f}")
+                                f"Best Lay Bet: {best_lay} with Edge: {best_edge:.4f}\n"
+                                f"Recommended Stake: £{stake:.2f} on {best_lay}\n"
+                                f"Highest Goal Probabilities:\nHome: {home_max_goals} goals ({home_max_prob:.2%}) | Away: {away_max_goals} goals ({away_max_prob:.2%})")
     except ValueError:
         result_label["text"] = "Invalid input, please enter numerical values."
 
@@ -78,7 +104,7 @@ entries = {}
 labels_text = [
     "Avg Goals Home Scored", "Avg Goals Away Conceded", "Avg Goals Away Scored", "Avg Goals Home Conceded",
     "Avg xG Home", "Avg xG Away", "Injuries Home", "Injuries Away", "Position Home", "Position Away", "Form Home", "Form Away",
-    "Bookmaker Odds Home", "Bookmaker Odds Away", "Bookmaker Odds Draw"
+    "Bookmaker Odds Home", "Bookmaker Odds Away", "Bookmaker Odds Draw", "Account Balance"
 ]
 
 for i, label_text in enumerate(labels_text):
