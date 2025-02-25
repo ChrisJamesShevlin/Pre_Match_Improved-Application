@@ -2,155 +2,316 @@ import tkinter as tk
 from tkinter import ttk
 from math import exp, factorial
 
-def poisson_probability(mean, k):
-    return (exp(-mean) * (mean ** k)) / factorial(k)
-
-def bivariate_poisson_probability(lambda1, lambda2, k1, k2, rho):
-    prob = 0
-    for i in range(min(k1, k2) + 1):
-        prob += (poisson_probability(lambda1, k1 - i) *
-                 poisson_probability(lambda2, k2 - i) *
-                 poisson_probability(rho, i))
-    return prob
-
-def calculate_fair_odds():
-    try:
-        # Inputs
-        avg_goals_home_scored = float(entries["avg_goals_home_scored"].get())
-        avg_goals_away_conceded = float(entries["avg_goals_away_conceded"].get())
-        avg_goals_away_scored = float(entries["avg_goals_away_scored"].get())
-        avg_goals_home_conceded = float(entries["avg_goals_home_conceded"].get())
-        avg_xg_home = float(entries["avg_xg_home"].get())
-        avg_xg_away = float(entries["avg_xg_away"].get())
-        injuries_home = int(entries["injuries_home"].get())
-        injuries_away = int(entries["injuries_away"].get())
-        position_home = int(entries["position_home"].get())
-        position_away = int(entries["position_away"].get())
-        form_home = int(entries["form_home"].get())
-        form_away = int(entries["form_away"].get())
-        bookmaker_odds_home = float(entries["bookmaker_odds_home"].get())
-        bookmaker_odds_away = float(entries["bookmaker_odds_away"].get())
-        bookmaker_odds_draw = float(entries["bookmaker_odds_draw"].get())
-        account_balance = float(entries["account_balance"].get())
-
-        # Expected Goals Calculation with xG Factor
-        lambda_home = (((avg_goals_home_scored + avg_goals_away_conceded) / 2) + avg_xg_home) * (1 - 0.05 * injuries_home) + form_home * 0.1 - position_home * 0.02
-        lambda_away = (((avg_goals_away_scored + avg_goals_home_conceded) / 2) + avg_xg_away) * (1 - 0.05 * injuries_away) + form_away * 0.1 - position_away * 0.02
-
-        # Correlation coefficient for bivariate Poisson
-        rho = 0.1  # Assumed correlation, adjust as needed
-
-        # Fair odds calculation using bivariate Poisson
-        home_win_prob = sum(bivariate_poisson_probability(lambda_home, lambda_away, k1, k2, rho)
-                            for k1 in range(10) for k2 in range(k1))
-        away_win_prob = sum(bivariate_poisson_probability(lambda_home, lambda_away, k1, k2, rho)
-                            for k2 in range(10) for k1 in range(k2))
-        draw_prob = sum(bivariate_poisson_probability(lambda_home, lambda_away, k, k, rho) for k in range(10))
-
-        # Normalize probabilities
-        total_prob = home_win_prob + away_win_prob + draw_prob
-        home_win_prob /= total_prob
-        away_win_prob /= total_prob
-        draw_prob /= total_prob
-
-        # Calculate bookmaker implied probabilities
-        implied_home_prob = 1 / bookmaker_odds_home
-        implied_away_prob = 1 / bookmaker_odds_away
-        implied_draw_prob = 1 / bookmaker_odds_draw
-        total_implied_prob = implied_home_prob + implied_away_prob + implied_draw_prob
-        implied_home_prob /= total_implied_prob
-        implied_away_prob /= total_implied_prob
-        implied_draw_prob /= total_implied_prob
-
-        # Blend model probabilities with bookmaker implied probabilities
-        blend_factor = 0.5  # Adjust this factor as needed (0.5 means equal weight to both model and bookmaker)
-        home_win_prob = blend_factor * home_win_prob + (1 - blend_factor) * implied_home_prob
-        away_win_prob = blend_factor * away_win_prob + (1 - blend_factor) * implied_away_prob
-        draw_prob = blend_factor * draw_prob + (1 - blend_factor) * implied_draw_prob
-
-        # Re-normalize blended probabilities
-        total_blended_prob = home_win_prob + away_win_prob + draw_prob
-        home_win_prob /= total_blended_prob
-        away_win_prob /= total_blended_prob
-        draw_prob /= total_blended_prob
-
-        # Calculate fair odds from blended probabilities
-        fair_home_odds = 1 / home_win_prob
-        fair_away_odds = 1 / away_win_prob
-        fair_draw_odds = 1 / draw_prob
-
-        # Edge calculation
-        edge_home = (home_win_prob - (1 / bookmaker_odds_home)) / (1 / bookmaker_odds_home)
-        edge_away = (away_win_prob - (1 / bookmaker_odds_away)) / (1 / bookmaker_odds_away)
-        edge_draw = (draw_prob - (1 / bookmaker_odds_draw)) / (1 / bookmaker_odds_draw)
-
-        # Print debug information in tab-separated format for Excel
-        print("Bet\tBookmaker Odds\tFair Odds\tEdge")
-        print(f"Home\t{bookmaker_odds_home}\t{fair_home_odds:.2f}\t{edge_home:.4f}")
-        print(f"Draw\t{bookmaker_odds_draw}\t{fair_draw_odds:.2f}\t{edge_draw:.4f}")
-        print(f"Away\t{bookmaker_odds_away}\t{fair_away_odds:.2f}\t{edge_away:.4f}")
-
-        # Best lay bet selection
-        layable_edges = {
-            "Home": (edge_home, fair_home_odds, bookmaker_odds_home),
-            "Away": (edge_away, fair_away_odds, bookmaker_odds_away),
-            "Draw": (edge_draw, fair_draw_odds, bookmaker_odds_draw)
+class FootballBettingModel:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Football Betting Model")
+        self.create_widgets()
+        self.history = {
+            "home_xg": [],
+            "away_xg": [],
+            "home_sot": [],
+            "away_sot": [],
+            "home_possession": [],
+            "away_possession": []
         }
-        valid_lay_bets = {k: v for k, v in layable_edges.items() if v[1] > v[2]}  # Only consider lay bets where fair odds > bookmaker odds
+        self.history_length = 10  # Store last 10 updates
 
-        if not valid_lay_bets:
-            result_label["text"] = "No valid lay bets available where fair odds are higher than bookmaker odds."
-            return
+    def create_widgets(self):
+        self.fields = {
+            "Home Avg Goals Scored": tk.DoubleVar(),
+            "Home Avg Goals Conceded": tk.DoubleVar(),
+            "Away Avg Goals Scored": tk.DoubleVar(),
+            "Away Avg Goals Conceded": tk.DoubleVar(),
+            "Home Xg": tk.DoubleVar(),
+            "Away Xg": tk.DoubleVar(),
+            "Elapsed Minutes": tk.DoubleVar(),
+            "Home Goals": tk.IntVar(),
+            "Away Goals": tk.IntVar(),
+            "In-Game Home Xg": tk.DoubleVar(),
+            "In-Game Away Xg": tk.DoubleVar(),
+            "Home Possession %": tk.DoubleVar(),
+            "Away Possession %": tk.DoubleVar(),
+            "Home Shots on Target": tk.IntVar(),  # New field
+            "Away Shots on Target": tk.IntVar(),  # New field
+            "Account Balance": tk.DoubleVar(),
+            "Live Home Odds": tk.DoubleVar(),
+            "Live Away Odds": tk.DoubleVar(),
+            "Live Draw Odds": tk.DoubleVar()
+        }
 
-        best_lay = min(valid_lay_bets, key=lambda k: valid_lay_bets[k][0])  # Find the most negative edge
-        best_edge, fair_odds, bookmaker_odds = valid_lay_bets[best_lay]
+        row = 0
+        for field, var in self.fields.items():
+            label = ttk.Label(self.root, text=field)
+            label.grid(row=row, column=0, sticky=tk.W, padx=5, pady=5)
+            entry = ttk.Entry(self.root, textvariable=var)
+            entry.grid(row=row, column=1, padx=5, pady=5)
+            row += 1
 
-        # Kelly criterion stake calculation
-        if bookmaker_odds < 2.0:
-            kelly_fraction = 0.18
-        elif bookmaker_odds < 8.0:
-            kelly_fraction = 0.08
+        calculate_button = ttk.Button(self.root, text="Calculate", command=self.calculate_fair_odds)
+        calculate_button.grid(row=row, column=0, columnspan=2, pady=10)
+        
+        reset_button = ttk.Button(self.root, text="Reset Fields", command=self.reset_fields)
+        reset_button.grid(row=row+1, column=0, columnspan=2, pady=10)
+
+        self.result_label = ttk.Label(self.root, text="")
+        self.result_label.grid(row=row+2, column=0, columnspan=2, pady=10)
+
+    def reset_fields(self):
+        for var in self.fields.values():
+            if isinstance(var, tk.DoubleVar):
+                var.set(0.0)
+            elif isinstance(var, tk.IntVar):
+                var.set(0)
+        self.history = {
+            "home_xg": [],
+            "away_xg": [],
+            "home_sot": [],
+            "away_sot": [],
+            "home_possession": [],
+            "away_possession": []
+        }
+
+    def zero_inflated_poisson_probability(self, lam, k, p_zero=0.06):
+        if k == 0:
+            return p_zero + (1 - p_zero) * exp(-lam)
+        return (1 - p_zero) * ((lam ** k) * exp(-lam)) / factorial(k)
+
+    def time_decay_adjustment(self, lambda_xg, elapsed_minutes):
+        decay_factor = max(0.5, 1 - (elapsed_minutes / 90))
+        return lambda_xg * decay_factor
+
+    def dynamic_kelly(self, edge, odds):
+        if odds >= 20.0:
+            return 0  # Avoid extreme odds
+        
+        if odds > 1.0:
+            # Scale the fraction based on the size of the edge
+            fraction = 0.18 if odds < 2.0 else 0.12 if odds < 8.0 else 0.06
+            scaled_fraction = fraction * (edge / (odds - 1))
+            return max(0, scaled_fraction)
+        
+        return 0
+
+    def update_history(self, key, value):
+        """Store the last 10 values of a given key."""
+        if len(self.history[key]) >= self.history_length:
+            self.history[key].pop(0)  # Remove oldest entry
+        self.history[key].append(value)
+
+    def get_recent_trend(self, key):
+        """Get the recent change over last 3 entries."""
+        if len(self.history[key]) < 3:
+            return 0  # Not enough data
+        return self.history[key][-1] - self.history[key][-3]  # Change over last 3 updates
+
+    def detect_momentum_peak(self):
+        """Detects if a team is at peak momentum but the market hasn't adjusted yet."""
+        trend_home_xg = self.get_recent_trend("home_xg")
+        trend_away_xg = self.get_recent_trend("away_xg")
+        trend_home_sot = self.get_recent_trend("home_sot")
+        trend_away_sot = self.get_recent_trend("away_sot")
+
+        if trend_home_xg > 0.3 and trend_home_sot > 1:
+            return "📈 Home team at peak momentum! Possible lay bet on Away before odds adjust."
+        elif trend_away_xg > 0.3 and trend_away_sot > 1:
+            return "📉 Away team at peak momentum! Possible lay bet on Home before odds adjust."
+
+        return None  # No peak detected
+
+    def detect_market_overreaction(self, fair_home_odds, live_home_odds, fair_away_odds, live_away_odds, fair_draw_odds, live_draw_odds):
+        """Identifies when live odds overreact, creating a value lay opportunity."""
+        signals = []
+        
+        if live_home_odds > fair_home_odds * 1.15:
+            signals.append("⚠️ Market overreaction on Home odds! Possible lay opportunity.")
+        if live_away_odds > fair_away_odds * 1.15:
+            signals.append("⚠️ Market overreaction on Away odds! Possible lay opportunity.")
+        if live_draw_odds > fair_draw_odds * 1.15:
+            signals.append("⚠️ Market overreaction on Draw odds! Possible lay opportunity.")
+
+        return "\n".join(signals) if signals else None
+
+    def detect_reversal_point(self):
+        """Detects when a previously dominant team starts fading."""
+        trend_home_xg = self.get_recent_trend("home_xg")
+        trend_away_xg = self.get_recent_trend("away_xg")
+        trend_home_sot = self.get_recent_trend("home_sot")
+        trend_away_sot = self.get_recent_trend("away_sot")
+        trend_home_possession = self.get_recent_trend("home_possession")
+        trend_away_possession = self.get_recent_trend("away_possession")
+
+        if trend_home_xg < 0 and trend_home_sot < 0 and trend_away_possession > 3:
+            return "🔄 Home team losing momentum! Possible lay bet on Home."
+        elif trend_away_xg < 0 and trend_away_sot < 0 and trend_home_possession > 3:
+            return "🔄 Away team losing momentum! Possible lay bet on Away."
+
+        return None
+
+    def optimal_betting_window(self, elapsed_minutes, home_odds, away_odds, draw_odds):
+        """Suggests best match phase to place lay bets based on in-game trends."""
+        if elapsed_minutes < 30 and min(home_odds, away_odds) < 1.8:
+            return "⏳ Early game: Odds still settling. Be cautious with lays."
+        elif elapsed_minutes in range(60, 75) and max(home_odds, away_odds) > 2.5:
+            return "🔥 60-75 min: Strongest attack period. Possible lay opportunity."
+        elif elapsed_minutes > 80 and draw_odds < 2.0:
+            return "⚠️ Late game: Market tightening. Lay bets riskier now."
+
+        return None
+
+    def calculate_fair_odds(self):
+        home_xg = self.fields["Home Xg"].get()
+        away_xg = self.fields["Away Xg"].get()
+        elapsed_minutes = self.fields["Elapsed Minutes"].get()
+        home_goals = self.fields["Home Goals"].get()
+        away_goals = self.fields["Away Goals"].get()
+        in_game_home_xg = self.fields["In-Game Home Xg"].get()
+        in_game_away_xg = self.fields["In-Game Away Xg"].get()
+        home_possession = self.fields["Home Possession %"].get()
+        away_possession = self.fields["Away Possession %"].get()
+        account_balance = self.fields["Account Balance"].get()
+        live_home_odds = self.fields["Live Home Odds"].get()
+        live_away_odds = self.fields["Live Away Odds"].get()
+        live_draw_odds = self.fields["Live Draw Odds"].get()
+
+        home_avg_goals_scored = self.fields["Home Avg Goals Scored"].get()
+        home_avg_goals_conceded = self.fields["Home Avg Goals Conceded"].get()
+        away_avg_goals_scored = self.fields["Away Avg Goals Scored"].get()
+        away_avg_goals_conceded = self.fields["Away Avg Goals Conceded"].get()
+
+        home_sot = self.fields["Home Shots on Target"].get()  # New field
+        away_sot = self.fields["Away Shots on Target"].get()  # New field
+
+        self.update_history("home_xg", home_xg)
+        self.update_history("away_xg", away_xg)
+        self.update_history("home_sot", home_sot)
+        self.update_history("away_sot", away_sot)
+        self.update_history("home_possession", home_possession)
+        self.update_history("away_possession", away_possession)
+
+        remaining_minutes = 90 - elapsed_minutes
+        lambda_home = self.time_decay_adjustment(in_game_home_xg + (home_xg * remaining_minutes / 90), elapsed_minutes)
+        lambda_away = self.time_decay_adjustment(in_game_away_xg + (away_xg * remaining_minutes / 90), elapsed_minutes)
+
+        lambda_home = (lambda_home * 0.85) + ((home_avg_goals_scored / max(0.75, away_avg_goals_conceded)) * 0.15)
+        lambda_away = (lambda_away * 0.85) + ((away_avg_goals_scored / max(0.75, home_avg_goals_conceded)) * 0.15)
+
+        lambda_home *= 1 + ((home_possession - 50) / 200)
+        lambda_away *= 1 + ((away_possession - 50) / 200)
+
+        home_win_probability, away_win_probability, draw_probability = 0, 0, 0
+
+        for home_goals_remaining in range(6):
+            for away_goals_remaining in range(6):
+                prob = self.zero_inflated_poisson_probability(lambda_home, home_goals_remaining) * \
+                       self.zero_inflated_poisson_probability(lambda_away, away_goals_remaining)
+
+                if home_goals + home_goals_remaining > away_goals + away_goals_remaining:
+                    home_win_probability += prob
+                elif home_goals + home_goals_remaining < away_goals + away_goals_remaining:
+                    away_win_probability += prob
+                else:
+                    draw_probability += prob
+
+        total_prob = home_win_probability + away_win_probability + draw_probability
+        if total_prob > 0:
+            home_win_probability /= total_prob
+            away_win_probability /= total_prob
+            draw_probability /= total_prob
+
+        fair_home_odds = 1 / home_win_probability
+        fair_away_odds = 1 / away_win_probability
+        fair_draw_odds = 1 / draw_probability
+
+        # Weighted calculation of which team is more likely to score next
+        home_contribution = (lambda_home * 0.4) + (in_game_home_xg * 0.3) + (home_sot * 0.2) + (home_goals * 0.1)
+        away_contribution = (lambda_away * 0.4) + (in_game_away_xg * 0.3) + (away_sot * 0.2) + (away_goals * 0.1)
+
+        if home_contribution > away_contribution:
+            goal_source = "Home"
+            lambda_home -= 0.04  # Bias toward stronger team
+        elif away_contribution > home_contribution:
+            goal_source = "Away"
+            lambda_away += 0.04  # More variance for weaker team
         else:
-            kelly_fraction = 0.04
+            goal_source = "Even"
 
-        stake = account_balance * kelly_fraction * abs(best_edge)  # Use absolute value of edge for stake calculation
+        lay_opportunities = []
+        max_edge = 0  # Track the highest edge
 
-        # Print recommended lay bet and stake in tab-separated format
-        print("\nRecommended Bet\tStake\tOdds")
-        print(f"{best_lay}\t£{stake:.2f}\t{bookmaker_odds}")
+        results = "Fair Odds & Edge:\n"
 
-        # Display results
-        result_label["text"] = (f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}\n"
-                                f"Edges:\nHome: {edge_home:.4f} | Away: {edge_away:.4f} | Draw: {edge_draw:.4f}\n"
-                                f"Best Bet: {best_lay} with Edge: {best_edge:.4f}\n"
-                                f"Recommended Stake: £{stake:.2f} on {best_lay}")
-    except ValueError:
-        result_label["text"] = "Invalid input, please enter numerical values."
+        for outcome, fair_odds, live_odds in [("Home", fair_home_odds, live_home_odds),
+                                              ("Away", fair_away_odds, live_away_odds),
+                                              ("Draw", fair_draw_odds, live_draw_odds)]:
+            edge = (fair_odds - live_odds) / fair_odds if live_odds < fair_odds else 0.0000
+            results += f"{outcome}: Fair {fair_odds:.2f} | Edge {edge:.4f}\n"
+            
+            if live_odds < fair_odds and live_odds < 20 and edge > 0:
+                kelly_fraction = self.dynamic_kelly(edge, live_odds)
+                stake = account_balance * kelly_fraction
+                liability = stake * (live_odds - 1)
 
-# UI Setup
-root = tk.Tk()
-root.title("Pre-Match Football Betting Model")
+                lay_opportunities.append((edge, outcome, live_odds, stake, liability))
 
-entries = {}
-labels_text = [
-    "Avg Goals Home Scored", "Avg Goals Away Conceded", "Avg Goals Away Scored", "Avg Goals Home Conceded",
-    "Avg xG Home", "Avg xG Away", "Injuries Home", "Injuries Away", "Position Home", "Position Away", "Form Home", "Form Away",
-    "Bookmaker Odds Home", "Bookmaker Odds Away", "Bookmaker Odds Draw", "Account Balance"
-]
+                if edge > max_edge:
+                    max_edge = edge  # Track the highest edge
 
-for i, label_text in enumerate(labels_text):
-    label = tk.Label(root, text=label_text)
-    label.grid(row=i, column=0, padx=5, pady=5, sticky="e")
-    entry_key = label_text.lower().replace(" ", "_").replace(".", "_")
-    entries[entry_key] = tk.Entry(root)
-    entries[entry_key].grid(row=i, column=1, padx=5, pady=5)
+        if lay_opportunities:
+            results += "\nLaying Opportunities:\n"
+            for edge, outcome, live_odds, stake, liability in sorted(lay_opportunities, reverse=True):
+                color = "green"  # Default to green for small edges
+                if edge == max_edge:
+                    color = "red"  # Highlight the best edge in red
+                elif edge > 0.03:  # Medium edge
+                    color = "orange"
 
-# Buttons
-result_label = tk.Label(root, text="", justify="left")
-result_label.grid(row=len(labels_text) + 1, column=0, columnspan=2, padx=5, pady=5)
+                results += f"\n🟢 Lay {outcome} at {live_odds:.2f} | Edge: {edge:.4f} | Stake: {stake:.2f} | Liability: {liability:.2f}" \
+                    if color == "green" else \
+                    f"\n🟠 Lay {outcome} at {live_odds:.2f} | Edge: {edge:.4f} | Stake: {stake:.2f} | Liability: {liability:.2f}" \
+                    if color == "orange" else \
+                    f"\n🔴 Lay {outcome} at {live_odds:.2f} | Edge: {edge:.4f} | Stake: {stake:.2f} | Liability: {liability:.2f}"
+        else:
+            results += "\nNo value lay bets found."
 
-tk.Button(root, text="Calculate Fair Odds", command=calculate_fair_odds).grid(row=len(labels_text) + 2, column=0, columnspan=2, padx=5, pady=10)
+        trend_home_xg = self.get_recent_trend("home_xg")
+        trend_away_xg = self.get_recent_trend("away_xg")
+        trend_home_sot = self.get_recent_trend("home_sot")
+        trend_away_sot = self.get_recent_trend("away_sot")
+        trend_home_possession = self.get_recent_trend("home_possession")
+        trend_away_possession = self.get_recent_trend("away_possession")
 
-tk.Button(root, text="Reset Fields", command=lambda: [entry.delete(0, tk.END) for entry in entries.values()]).grid(row=len(labels_text) + 3, column=0, columnspan=2, padx=5, pady=10)
+        # If a team is gaining momentum, adjust fair odds weight slightly
+        if trend_home_xg > 0.2 or trend_home_sot > 1 or trend_home_possession > 3:
+            results += "\n📈 Home team gaining momentum! Consider value bet.\n"
+        elif trend_away_xg > 0.2 or trend_away_sot > 1 or trend_away_possession > 3:
+            results += "\n📉 Away team gaining momentum! Consider value bet.\n"
 
-root.mainloop()
+        results += f"\nGoal Probability: {home_win_probability + away_win_probability:.2%} ({goal_source})\n"
+
+        # Detect momentum trends
+        momentum_signal = self.detect_momentum_peak()
+        reversal_signal = self.detect_reversal_point()
+        betting_window_signal = self.optimal_betting_window(elapsed_minutes, live_home_odds, live_away_odds, live_draw_odds)
+
+        # Detect market overreaction (for lay bets)
+        overreaction_signal = self.detect_market_overreaction(fair_home_odds, live_home_odds, fair_away_odds, live_away_odds, fair_draw_odds, live_draw_odds)
+
+        # Combine all signals
+        betting_signals = "\n📊 Betting Insights:\n"
+        if momentum_signal:
+            betting_signals += f"{momentum_signal}\n"
+        if reversal_signal:
+            betting_signals += f"{reversal_signal}\n"
+        if betting_window_signal:
+            betting_signals += f"{betting_window_signal}\n"
+        if overreaction_signal:
+            betting_signals += f"{overreaction_signal}\n"
+
+        # Update UI or print signals
+        self.result_label.config(text=results + betting_signals)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = FootballBettingModel(root)
+    root.mainloop()
