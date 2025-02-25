@@ -34,14 +34,10 @@ def calculate_fair_odds():
         lambda_home = (((avg_goals_home_scored + avg_goals_away_conceded) / 2) + avg_xg_home) * (1 - 0.05 * injuries_home) + form_home * 0.1 - position_home * 0.02
         lambda_away = (((avg_goals_away_scored + avg_goals_home_conceded) / 2) + avg_xg_away) * (1 - 0.05 * injuries_away) + form_away * 0.1 - position_away * 0.02
         
-        # Goal probabilities
-        goal_range = 10
-        home_goal_probs = [zero_inflated_poisson_probability(lambda_home, i) for i in range(goal_range)]
-        away_goal_probs = [zero_inflated_poisson_probability(lambda_away, i) for i in range(goal_range)]
-        
-        draw_prob = sum(home_goal_probs[i] * away_goal_probs[i] for i in range(goal_range))
-        home_win_prob = sum(sum(home_goal_probs[i] * away_goal_probs[j] for j in range(i)) for i in range(goal_range))
-        away_win_prob = sum(sum(home_goal_probs[j] * away_goal_probs[i] for j in range(i)) for i in range(goal_range))
+        # Fair odds calculation using expected goals
+        home_win_prob = lambda_home / (lambda_home + lambda_away)
+        away_win_prob = lambda_away / (lambda_home + lambda_away)
+        draw_prob = sum(poisson_probability(lambda_home, k) * poisson_probability(lambda_away, k) for k in range(10))
         
         # Normalize probabilities
         total_prob = home_win_prob + away_win_prob + draw_prob
@@ -59,19 +55,15 @@ def calculate_fair_odds():
         edge_away = (away_win_prob - (1 / bookmaker_odds_away)) / (1 / bookmaker_odds_away)
         edge_draw = (draw_prob - (1 / bookmaker_odds_draw)) / (1 / bookmaker_odds_draw)
         
-        # Fair odds for over goals markets
-        def calculate_over_goals_odds(threshold):
-            prob = sum(home_goal_probs[i] * away_goal_probs[j] for i in range(goal_range) for j in range(goal_range) if i + j > threshold)
-            return 1 / prob
-
-        fair_over_0_5_odds = calculate_over_goals_odds(0.5)
-        fair_over_1_5_odds = calculate_over_goals_odds(1.5)
-        fair_over_2_5_odds = calculate_over_goals_odds(2.5)
-        fair_over_3_5_odds = calculate_over_goals_odds(3.5)
+        # Print debug information in tab-separated format for Excel
+        print("Bet\tBookmaker Odds\tFair Odds\tEdge")
+        print(f"Home\t{bookmaker_odds_home}\t{fair_home_odds:.2f}\t{edge_home:.4f}")
+        print(f"Away\t{bookmaker_odds_away}\t{fair_away_odds:.2f}\t{edge_away:.4f}")
+        print(f"Draw\t{bookmaker_odds_draw}\t{fair_draw_odds:.2f}\t{edge_draw:.4f}")
         
         # Best lay bet selection
         layable_edges = {"Home": edge_home, "Away": edge_away, "Draw": edge_draw}
-        best_lay = min(layable_edges, key=layable_edges.get)
+        best_lay = max(layable_edges, key=layable_edges.get)  # Changed to max to find highest edge
         best_edge = layable_edges[best_lay]
         
         # Kelly criterion stake calculation
@@ -90,20 +82,16 @@ def calculate_fair_odds():
             kelly_fraction = 0.04
 
         stake = account_balance * kelly_fraction * best_edge
-
-        # Highest goal probabilities
-        home_max_prob = max(home_goal_probs)
-        away_max_prob = max(away_goal_probs)
-        home_max_goals = home_goal_probs.index(home_max_prob)
-        away_max_goals = away_goal_probs.index(away_max_prob)
         
+        # Print recommended lay bet and stake in tab-separated format
+        print("\nRecommended Bet\tStake\tOdds")
+        print(f"{best_lay}\t£{stake:.2f}\t{bookmaker_odds}")
+
         # Display results
         result_label["text"] = (f"Fair Odds:\nHome: {fair_home_odds:.2f} | Away: {fair_away_odds:.2f} | Draw: {fair_draw_odds:.2f}\n"
                                 f"Edges:\nHome: {edge_home:.4f} | Away: {edge_away:.4f} | Draw: {edge_draw:.4f}\n"
-                                f"Best Lay Bet: {best_lay} with Edge: {best_edge:.4f}\n"
-                                f"Recommended Stake: ${stake:.2f} on {best_lay}\n"
-                                f"Highest Goal Probabilities:\nHome: {home_max_goals} goals ({home_max_prob:.2%}) | Away: {away_max_goals} goals ({away_max_prob:.2%})\n"
-                                f"Fair Odds for Over Goals Markets:\nOver 0.5: {fair_over_0_5_odds:.2f} | Over 1.5: {fair_over_1_5_odds:.2f} | Over 2.5: {fair_over_2_5_odds:.2f} | Over 3.5: {fair_over_3_5_odds:.2f}")
+                                f"Best Bet: {best_lay} with Edge: {best_edge:.4f}\n"
+                                f"Recommended Stake: £{stake:.2f} on {best_lay}")
     except ValueError:
         result_label["text"] = "Invalid input, please enter numerical values."
 
