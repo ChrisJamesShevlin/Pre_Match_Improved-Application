@@ -58,22 +58,25 @@ def calculate_fair_odds():
         # Print debug information in tab-separated format for Excel
         print("Bet\tBookmaker Odds\tFair Odds\tEdge")
         print(f"Home\t{bookmaker_odds_home}\t{fair_home_odds:.2f}\t{edge_home:.4f}")
-        print(f"Away\t{bookmaker_odds_away}\t{fair_away_odds:.2f}\t{edge_away:.4f}")
         print(f"Draw\t{bookmaker_odds_draw}\t{fair_draw_odds:.2f}\t{edge_draw:.4f}")
-        
-        # Best lay bet selection
-        layable_edges = {"Home": edge_home, "Away": edge_away, "Draw": edge_draw}
-        best_lay = max(layable_edges, key=layable_edges.get)  # Changed to max to find highest edge
-        best_edge = layable_edges[best_lay]
-        
-        # Kelly criterion stake calculation
-        if best_lay == "Home":
-            bookmaker_odds = bookmaker_odds_home
-        elif best_lay == "Away":
-            bookmaker_odds = bookmaker_odds_away
-        else:
-            bookmaker_odds = bookmaker_odds_draw
+        print(f"Away\t{bookmaker_odds_away}\t{fair_away_odds:.2f}\t{edge_away:.4f}")
 
+        # Best lay bet selection
+        layable_edges = {
+            "Home": (edge_home, fair_home_odds, bookmaker_odds_home),
+            "Away": (edge_away, fair_away_odds, bookmaker_odds_away),
+            "Draw": (edge_draw, fair_draw_odds, bookmaker_odds_draw)
+        }
+        valid_lay_bets = {k: v for k, v in layable_edges.items() if v[1] > v[2]}  # Only consider lay bets where fair odds > bookmaker odds
+        
+        if not valid_lay_bets:
+            result_label["text"] = "No valid lay bets available where fair odds are higher than bookmaker odds."
+            return
+
+        best_lay = min(valid_lay_bets, key=lambda k: valid_lay_bets[k][0])  # Find the most negative edge
+        best_edge, fair_odds, bookmaker_odds = valid_lay_bets[best_lay]
+
+        # Kelly criterion stake calculation
         if bookmaker_odds < 2.0:
             kelly_fraction = 0.18
         elif bookmaker_odds < 8.0:
@@ -81,7 +84,7 @@ def calculate_fair_odds():
         else:
             kelly_fraction = 0.04
 
-        stake = account_balance * kelly_fraction * best_edge
+        stake = account_balance * kelly_fraction * abs(best_edge)  # Use absolute value of edge for stake calculation
         
         # Print recommended lay bet and stake in tab-separated format
         print("\nRecommended Bet\tStake\tOdds")
