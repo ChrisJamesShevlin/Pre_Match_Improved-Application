@@ -14,8 +14,15 @@ def fair_odds(prob):
     return (1/prob) if prob > 0 else float('inf')
 
 def dynamic_kelly(edge):
-    # Using 1/8 Kelly (0.125 * edge)
-    return max(0, 0.125 * edge)
+    # Read Kelly fraction from the new user input (as a percentage)
+    try:
+        multiplier = float(entries["entry_kelly_fraction"].get()) / 100.0
+    except ValueError:
+        multiplier = 0.125  # default to 12.5%
+    # If nothing valid is entered, default to 0.125 (12.5%)
+    if multiplier <= 0:
+        multiplier = 0.125
+    return max(0, multiplier * edge)
 
 def calculate_insights():
     try:
@@ -37,17 +44,15 @@ def calculate_insights():
         home_xg_conceded = float(entries["entry_home_xg_conceded"].get())
         away_xg_conceded = float(entries["entry_away_xg_conceded"].get())
         
-        # Live odds for Under/Over 2.5 and match result
         live_under_odds = float(entries["entry_live_under_odds"].get())
         live_over_odds  = float(entries["entry_live_over_odds"].get())
         live_home_odds  = float(entries["entry_live_home_odds"].get())
         live_draw_odds  = float(entries["entry_live_draw_odds"].get())
         live_away_odds  = float(entries["entry_live_away_odds"].get())
         
-        # Account Balance
         account_balance = float(entries["entry_account_balance"].get())
         
-        # NEW: Inputs for target correct score lay bet
+        # New inputs for target correct score lay bet:
         target_score_str = entries["entry_target_scoreline"].get().strip()
         target_score_live_odds = float(entries["entry_target_scoreline_odds"].get())
         
@@ -62,7 +67,7 @@ def calculate_insights():
         adjusted_away_goals *= (1 - 0.03 * injuries_away)
         adjusted_away_goals += form_away * 0.1 - position_away * 0.01
         
-        # --- 3) Calculate scoreline probabilities using (zero-inflated) Poisson ---
+        # --- 3) Calculate scoreline probabilities using zero-inflated Poisson ---
         goal_range = 10
         scoreline_probs = {}
         for i in range(goal_range):
@@ -104,7 +109,7 @@ def calculate_insights():
         fair_draw_odds = fair_odds(final_draw)
         fair_away_odds = fair_odds(final_away_win)
         
-        # --- 8) Match Odds Bet Recommendations (suggest Lay if fair > live)
+        # --- 8) Match Odds Bet Recommendations ---
         def rec_bet(fair_val, live, label):
             if live <= 1:
                 return f"{label}: No valid live odds."
@@ -275,7 +280,9 @@ entries = {
     "entry_account_balance":  tk.Entry(root),
     # New inputs for target correct score lay bet:
     "entry_target_scoreline":         tk.Entry(root),
-    "entry_target_scoreline_odds":      tk.Entry(root)
+    "entry_target_scoreline_odds":      tk.Entry(root),
+    # New input for Kelly staking fraction (as a percentage)
+    "entry_kelly_fraction":             tk.Entry(root)
 }
 
 labels_text = [
@@ -284,7 +291,8 @@ labels_text = [
     "Form Home", "Form Away", "Home xG Scored", "Away xG Scored",
     "Home xG Conceded", "Away xG Conceded", "Live Under 2.5 Odds", "Live Over 2.5 Odds",
     "Live Home Win Odds", "Live Draw Odds", "Live Away Win Odds", "Account Balance",
-    "Target Scoreline (e.g. 1-1)", "Target Scoreline Live Odds"
+    "Target Scoreline (e.g. 1-1)", "Target Scoreline Live Odds",
+    "Kelly Staking Fraction (%)"
 ]
 
 for i, (key, text) in enumerate(zip(entries.keys(), labels_text)):
@@ -298,7 +306,7 @@ result_frame.grid(row=len(entries), column=0, columnspan=2, padx=5, pady=5, stic
 root.grid_rowconfigure(len(entries), weight=1)
 root.grid_columnconfigure(1, weight=1)
 
-# Increase the output widget size: 80 characters wide and 40 lines high
+# Increase output widget size: 80 characters wide and 40 lines high
 result_text_widget = tk.Text(result_frame, wrap=tk.WORD, background="white", width=80, height=40)
 result_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 scrollbar = tk.Scrollbar(result_frame, command=result_text_widget.yview)
@@ -310,7 +318,7 @@ calc_button.grid(row=len(entries)+1, column=0, columnspan=2, padx=5, pady=10)
 reset_button = tk.Button(root, text="Reset All Fields", command=reset_fields)
 reset_button.grid(row=len(entries)+2, column=0, columnspan=2, padx=5, pady=10)
 
-# Configure text tags: "back" in blue, "lay" in red, "insight" in green, "normal" in black.
+# Configure text tags: back bets in blue, lay bets in red, insights in green, normal in black.
 result_text_widget.tag_configure("insight", foreground="green")
 result_text_widget.tag_configure("lay", foreground="red")
 result_text_widget.tag_configure("back", foreground="blue")
